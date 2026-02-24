@@ -59,7 +59,7 @@ export default function App() {
         </Stack>
       </AppShell.Header>
 
-      <AppShell.Main>
+      <AppShell.Main px={"sm"}>
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
           <CameraPanel activeMode={activeMode} webcamRef={webcamRef} />
 

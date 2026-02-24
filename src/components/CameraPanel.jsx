@@ -134,7 +134,13 @@ const CameraPanel = ({ activeMode, webcamRef }) => {
   };
 
   return (
-    <Paper shadow="md" p="xl" withBorder radius="lg" bg="white">
+    <Paper
+      shadow="md"
+      p={{ base: "md", sm: "xl" }}
+      withBorder
+      radius="lg"
+      bg="white"
+    >
       <Group justify="space-between" mb="md">
         <Stack gap={0}>
           <Title order={4} c="dark.7">
