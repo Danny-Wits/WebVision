@@ -10,10 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@gradio/client": "^2.0.4",
     "@mantine/core": "^8.3.15",
     "@mantine/hooks": "^8.3.15",
     "@vladmandic/face-api": "^1.7.15",
     "axios": "^1.13.5",
+    "canvas-confetti": "^1.9.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-webcam": "^7.2.0"

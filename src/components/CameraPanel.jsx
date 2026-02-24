@@ -1,4 +1,14 @@
-import { Center, Loader, Paper, Text, Title } from "@mantine/core";
+import {
+  Badge,
+  Box,
+  Center,
+  Group,
+  Loader,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import * as faceapi from "@vladmandic/face-api";
 import { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
@@ -8,64 +18,45 @@ const CameraPanel = ({ activeMode, webcamRef }) => {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // 1. Load the AI Models
   useEffect(() => {
     const loadModels = async () => {
-      faceapi.tf.setBackend("webgl");
-      await faceapi.tf.ready();
-      console.log(
-        `🟢 [Init] Engine Ready! Using backend: ${faceapi.tf.getBackend()}`,
-      );
-      console.log("🟡 [Init] Starting model loading from /models...");
-      const MODEL_URL = "/models";
-
       try {
+        faceapi.tf.setBackend("webgl");
+        await faceapi.tf.ready();
+        const MODEL_URL = "/models";
+
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
           faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
           faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL),
         ]);
-        console.log("🟢 [Init] All 3 models loaded successfully!");
         setModelsLoaded(true);
       } catch (err) {
-        console.error("🔴 [Init Error] Failed to load models:", err);
-        setErrorMsg(
-          `Model Load Error: Check console. Are files in public/models?`,
-        );
+        setErrorMsg("Model Load Error: Check public/models folder." + err);
       }
     };
     loadModels();
   }, []);
 
-  // 2. The AI Detection Loop
   const handleVideoPlay = () => {
-    console.log("🟡 [Camera] Webcam video started playing. Starting loop...");
-    setInterval(async () => {
-      // Check 1: Are we in the right mode?
-      if (activeMode !== "emotion") {
+    const interval = setInterval(async () => {
+      if (
+        activeMode !== "emotion" ||
+        !webcamRef.current ||
+        webcamRef.current.video.readyState !== 4
+      ) {
         if (canvasRef.current) {
-          canvasRef.current
-            .getContext("2d")
-            .clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+          const ctx = canvasRef.current.getContext("2d");
+          ctx.clearRect(
+            0,
+            0,
+            canvasRef.current.width,
+            canvasRef.current.height,
+          );
         }
         return;
       }
 
-      // Check 2: Does the webcam reference exist?
-      if (!webcamRef.current) {
-        console.log("🟠 [Loop] webcamRef is null. Waiting...");
-        return;
-      }
-
-      // Check 3: Is the video data actually streaming?
-      if (webcamRef.current.video.readyState !== 4) {
-        console.log(
-          `🟠 [Loop] Video readyState is ${webcamRef.current.video.readyState}, waiting for 4...`,
-        );
-        return;
-      }
-
-      // Execution: Try to find a face
       try {
         const video = webcamRef.current.video;
         const canvas = canvasRef.current;
@@ -85,112 +76,156 @@ const CameraPanel = ({ activeMode, webcamRef }) => {
           detections,
           displaySize,
         );
-        // Clear the previous frame's drawings
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // --- CUSTOM STYLISH DRAWING ---
         resizedDetections.forEach((detection) => {
           const box = detection.detection.box;
           const expressions = detection.expressions;
-
-          // 1. Find the strongest emotion
           const dominantEmotion = Object.keys(expressions).reduce((a, b) =>
             expressions[a] > expressions[b] ? a : b,
           );
 
-          // 2. Map emotions to vibrant "Cyber" colors
           const emotionColors = {
-            happy: "#09ff00",
-            sad: "#00BFFF",
-            angry: "#FF3333",
-            surprised: "#FF00FF",
-            fearful: "#8A2BE2",
-            disgusted: "#368336",
-            neutral: "#e5e9e9",
+            happy: "#4ade80",
+            sad: "#60a5fa",
+            angry: "#f87171",
+            surprised: "#f472b6",
+            fearful: "#a78bfa",
+            disgusted: "#fb923c",
+            neutral: "#94a3b8",
           };
-          const color = emotionColors[dominantEmotion] || "#FFFFFF";
+          const color = emotionColors[dominantEmotion] || "#ffffff";
 
-          // 3. Draw a glowing, rounded bounding box
+          // Stylish Rounded Box with Glow
           ctx.strokeStyle = color;
           ctx.lineWidth = 4;
           ctx.shadowColor = color;
-          ctx.shadowBlur = 15; // Creates the neon glow effect
+          ctx.shadowBlur = 10;
+          ctx.lineJoin = "round";
 
           ctx.beginPath();
-          // roundRect makes the box look like a modern app instead of a terminal
-          ctx.roundRect(box.x, box.y, box.width, box.height, 16);
+          ctx.roundRect(box.x, box.y, box.width, box.height, 12);
           ctx.stroke();
 
-          // 4. Draw a solid background badge for the text
-          ctx.fillStyle = color;
+          // Label Badge
           ctx.shadowBlur = 0;
+          ctx.fillStyle = color;
           ctx.beginPath();
-          // Top-rounded corners only for the label tab
-          ctx.roundRect(box.x, box.y - 35, 140, 30, [10, 10, 0, 0]);
+          ctx.roundRect(box.x, box.y - 35, 120, 30, 8);
           ctx.fill();
 
-          // 5. Draw the stylish text inside the badge
-          ctx.fillStyle = "#000000"; // Black text for high contrast
-          ctx.font = 'bold 16px "Segoe UI", sans-serif';
-
-          // Format text like "HAPPY 98%"
+          // Text
+          ctx.fillStyle = "#ffffff";
+          ctx.font = 'bold 14px "Inter", sans-serif';
           const score = Math.round(expressions[dominantEmotion] * 100);
-          const text = `${dominantEmotion.toUpperCase()} ${score}%`;
-          ctx.fillText(text, box.x + 10, box.y - 12);
+          ctx.fillText(
+            `${dominantEmotion.toUpperCase()} ${score}%`,
+            box.x + 10,
+            box.y - 15,
+          );
         });
-        // ------------------------------
       } catch (err) {
-        console.error("🔴 [Loop Error] Crash during face detection:", err);
+        console.error("Detection error:", err);
       }
-    }, 500);
+    }, 500); // Faster refresh for smoother tracking
+
+    return () => clearInterval(interval);
   };
 
   return (
-    <Paper shadow="sm" p="md" withBorder radius="md">
-      <Title order={5} mb="sm" c="dimmed">
-        LIVE FEED
-      </Title>
+    <Paper shadow="md" p="xl" withBorder radius="lg" bg="white">
+      <Group justify="space-between" mb="md">
+        <Stack gap={0}>
+          <Title order={4} c="dark.7">
+            Vision Monitor
+          </Title>
+          <Text size="xs" c="dimmed" fw={500}>
+            Neural Engine Active
+          </Text>
+          <Text size="xs" c="dimmed" fw={500} mt="xs">
+            Please look directly into the camera lens and show an expression.
+          </Text>
+        </Stack>
+        {modelsLoaded && (
+          <Badge
+            variant="dot"
+            color="red"
+            size="lg"
+            styles={{ root: { animation: "pulse 2s infinite" } }}
+          >
+            LIVE
+          </Badge>
+        )}
+      </Group>
 
       {errorMsg && (
-        <Text c="red" fw={700} mb="sm">
-          {errorMsg}
-        </Text>
+        <Paper
+          p="xs"
+          bg="red.0"
+          mb="md"
+          withBorder
+          style={{ borderColor: "var(--mantine-color-red-2)" }}
+        >
+          <Text c="red.7" size="sm" fw={600} ta="center">
+            {errorMsg}
+          </Text>
+        </Paper>
       )}
 
-      {!modelsLoaded ? (
-        <Center h={300}>
-          <Loader color="red" type="bars" />
-          <Text ml="md">Loading AI Models...</Text>
-        </Center>
-      ) : (
-        <div
-          style={{
-            position: "relative",
-            width: "100%",
-            borderRadius: "8px",
-            overflow: "hidden",
-          }}
-        >
-          <Webcam
-            audio={false}
-            ref={webcamRef}
-            onPlay={handleVideoPlay}
-            style={{ width: "100%", display: "block", borderRadius: "8px" }}
-          />
-          <canvas
-            ref={canvasRef}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              height: "100%",
-              zIndex: 10,
-            }}
-          />
-        </div>
-      )}
+      <Box
+        pos="relative"
+        style={{
+          borderRadius: "12px",
+          overflow: "hidden",
+          boxShadow:
+            "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+          backgroundColor: "#000",
+        }}
+      >
+        {!modelsLoaded ? (
+          <Center h={400} style={{ flexDirection: "column", gap: "15px" }}>
+            <Loader color="red.6" size="lg" />
+            <Text c="dimmed" size="sm" fw={600}>
+              Initializing AI Models...
+            </Text>
+          </Center>
+        ) : (
+          <>
+            <Webcam
+              audio={false}
+              ref={webcamRef}
+              onPlay={handleVideoPlay}
+              style={{ width: "100%", display: "block" }}
+              videoConstraints={{ facingMode: "user" }}
+            />
+            <canvas
+              ref={canvasRef}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                zIndex: 10,
+                pointerEvents: "none", // Allows clicks to pass through if needed
+              }}
+            />
+          </>
+        )}
+      </Box>
+
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+        @keyframes pulse {
+          0% { opacity: 1; }
+          50% { opacity: 0.4; }
+          100% { opacity: 1; }
+        }
+      `,
+        }}
+      />
     </Paper>
   );
 };
