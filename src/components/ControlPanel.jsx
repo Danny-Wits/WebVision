@@ -11,6 +11,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import * as faceapi from "@vladmandic/face-api"; // Added face-api import
 import confetti from "canvas-confetti";
 import { useState } from "react";
 
@@ -37,17 +38,49 @@ export default function CelebrityMatch({ webcamRef }) {
   };
 
   const handleSnapshot = async () => {
-    if (!webcamRef.current) return;
+    if (!webcamRef.current || !webcamRef.current.video) return;
 
-    const imageSrc = webcamRef.current.getScreenshot();
-    if (!imageSrc) return;
+    const video = webcamRef.current.video;
 
-    setUserImage(imageSrc);
     setIsAnalyzing(true);
     setMatchResult(null);
 
     try {
-      const blob = await (await fetch(imageSrc)).blob();
+      // 1. Detect the face on the current video frame
+      const detection = await faceapi.detectSingleFace(
+        video,
+        new faceapi.TinyFaceDetectorOptions(),
+      );
+
+      if (!detection) {
+        setMatchResult({
+          error: "No face detected! Please look at the camera.",
+        });
+        setIsAnalyzing(false);
+        return;
+      }
+
+      // 2. Calculate crop area with some padding so we don't cut off hair/chin
+      const padding = 50;
+      const { x, y, width, height } = detection.box;
+      const sx = Math.max(0, x - padding);
+      const sy = Math.max(0, y - padding);
+      const sWidth = Math.min(video.videoWidth - sx, width + padding * 2);
+      const sHeight = Math.min(video.videoHeight - sy, height + padding * 2);
+
+      // 3. Draw cropped face to an off-screen canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = sWidth;
+      canvas.height = sHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+
+      // 4. Get the cropped image data
+      const croppedImageSrc = canvas.toDataURL("image/jpeg", 0.9);
+      setUserImage(croppedImageSrc);
+
+      // 5. Send to Gradio
+      const blob = await (await fetch(croppedImageSrc)).blob();
       const app = await Client.connect("DannyWits/prism-celeb-vision");
       const result = await app.predict("/predict", [blob]);
 
@@ -61,7 +94,9 @@ export default function CelebrityMatch({ webcamRef }) {
       // Fire the confetti on a successful match!
       triggerConfetti();
     } catch (err) {
-      setMatchResult({ error: "Server busy. Try again. " + err });
+      setMatchResult({
+        error: "Server busy or network error. Try again. " + err.message,
+      });
     } finally {
       setIsAnalyzing(false);
     }
