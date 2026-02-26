@@ -151,7 +151,9 @@ export default function CelebrityMatch({ webcamRef }) {
           <Stack gap="md" mt="sm">
             <Center>
               <Badge size="xl" variant="light" color="grape" radius="md">
-                It's a {(matchResult.score * 100 + 20).toFixed(1)}% Match!
+                It's a{" "}
+                {(matchResult.score * 100 + (Math.random() % 30)).toFixed(1)}%
+                Match!
               </Badge>
             </Center>
 
