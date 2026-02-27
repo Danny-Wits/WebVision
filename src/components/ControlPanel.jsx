@@ -11,6 +11,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import * as faceapi from "@vladmandic/face-api"; // Added face-api import
 import { IconAlertCircle, IconSparkles } from "@tabler/icons-react";
 import confetti from "canvas-confetti";
 import { useEffect, useState } from "react";
@@ -39,16 +40,49 @@ export default function CelebrityMatch({ webcamRef }) {
   };
 
   const handleSnapshot = async () => {
-    if (!webcamRef.current) return;
+    if (!webcamRef.current || !webcamRef.current.video) return;
 
-    const imageSrc = webcamRef.current.getScreenshot();
-    if (!imageSrc) return;
+    const video = webcamRef.current.video;
 
-    setUserImage(imageSrc);
     setIsAnalyzing(true);
     setMatchResult(null);
 
     try {
+      // 1. Detect the face on the current video frame
+      const detection = await faceapi.detectSingleFace(
+        video,
+        new faceapi.TinyFaceDetectorOptions(),
+      );
+
+      if (!detection) {
+        setMatchResult({
+          error: "No face detected! Please look at the camera.",
+        });
+        setIsAnalyzing(false);
+        return;
+      }
+
+      // 2. Calculate crop area with some padding so we don't cut off hair/chin
+      const padding = 50;
+      const { x, y, width, height } = detection.box;
+      const sx = Math.max(0, x - padding);
+      const sy = Math.max(0, y - padding);
+      const sWidth = Math.min(video.videoWidth - sx, width + padding * 2);
+      const sHeight = Math.min(video.videoHeight - sy, height + padding * 2);
+
+      // 3. Draw cropped face to an off-screen canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = sWidth;
+      canvas.height = sHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+
+      // 4. Get the cropped image data
+      const croppedImageSrc = canvas.toDataURL("image/jpeg", 0.9);
+      setUserImage(croppedImageSrc);
+
+      // 5. Send to Gradio
+      const blob = await (await fetch(croppedImageSrc)).blob();
       // 1. Detect the face on the current video frame
       const detection = await faceapi.detectSingleFace(
         video,
@@ -97,7 +131,9 @@ export default function CelebrityMatch({ webcamRef }) {
       // Fire the confetti on a successful match!
       triggerConfetti();
     } catch (err) {
-      setMatchResult({ error: "Server busy. Try again. " + err });
+      setMatchResult({
+        error: "Server busy or network error. Try again. " + err.message,
+      });
     } finally {
       setIsAnalyzing(false);
     }
@@ -188,7 +224,9 @@ export default function CelebrityMatch({ webcamRef }) {
           <Stack gap="md" mt="sm">
             <Center>
               <Badge size="xl" variant="light" color="grape" radius="md">
-                It's a {(matchResult.score * 100 + 20).toFixed(1)}% Match!
+                It's a{" "}
+                {(matchResult.score * 100 + (Math.random() % 30)).toFixed(1)}%
+                Match!
               </Badge>
             </Center>
 
