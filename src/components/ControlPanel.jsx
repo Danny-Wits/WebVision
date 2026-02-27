@@ -68,7 +68,7 @@ export default function CelebrityMatch({ webcamRef }) {
         return;
       }
 
-      // 2. Calculate crop area with some padding so we don't cut off hair/chin
+      // 2. Calculate crop area with some padding
       const padding = 60;
       const { x, y, width, height } = detection.box;
       const sx = Math.max(0, x - padding);
@@ -76,25 +76,43 @@ export default function CelebrityMatch({ webcamRef }) {
       const sWidth = Math.min(video.videoWidth - sx, width + padding * 2);
       const sHeight = Math.min(video.videoHeight - sy, height + padding * 2);
 
-      // 3. Draw cropped face to an off-screen canvas
-      const canvas = document.createElement("canvas");
-      canvas.width = sWidth;
-      canvas.height = sHeight;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+      // ==========================================
+      // CANVAS 1: The High-Res Version (For the UI)
+      // ==========================================
+      const uiCanvas = document.createElement("canvas");
+      uiCanvas.width = sWidth;
+      uiCanvas.height = sHeight;
+      const uiCtx = uiCanvas.getContext("2d");
+      uiCtx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
 
-      // 4. Get the cropped image data
-      const croppedImageSrc = canvas.toDataURL("image/jpeg", 0.9);
-      setUserImage(croppedImageSrc);
+      // Show the crisp image on the screen
+      const highResImageSrc = uiCanvas.toDataURL("image/jpeg", 0.9);
+      setUserImage(highResImageSrc);
 
-      // 5. Send to Gradio
-      const blob = await (await fetch(croppedImageSrc)).blob();
+      // ==========================================
+      // CANVAS 2: The 64x64 Potato Version (For the AI)
+      // ==========================================
+      const aiCanvas = document.createElement("canvas");
+      // Force the exact resolution of your Bollywood dataset!
+      aiCanvas.width = 64;
+      aiCanvas.height = 64;
+      const aiCtx = aiCanvas.getContext("2d");
+
+      // Squash the high-res crop down into the 64x64 canvas
+      aiCtx.drawImage(uiCanvas, 0, 0, 64, 64);
+
+      // Export it as a standard quality JPEG
+      const degradedBlob = await new Promise((resolve) => {
+        aiCanvas.toBlob((blob) => resolve(blob), "image/jpeg", 1);
+      });
+
+      // 5. Send the DEGRADED blob to Gradio, NOT the high-res one!
       const app = await Client.connect("DannyWits/prism-celeb-vision");
-      const result = await app.predict("/predict", [blob]);
+      const result = await app.predict("/predict", [degradedBlob]);
 
       const confidences = result?.data[0]?.confidences;
       if (!confidences || confidences.length === 0)
-        throw new Error("No face recognized");
+        throw new Error("No face recognized by the model");
 
       const topMatch = confidences[0];
       const runnerUps = confidences.slice(1, 3);
@@ -292,6 +310,7 @@ const imageContainerStyle = {
 const imageStyle = {
   width: "100%",
   height: "100%",
-  objectFit: "cover", // Prevents image stretching
+  objectFit: "cover",
+  objectPosition: "top center",
   display: "block",
 };
