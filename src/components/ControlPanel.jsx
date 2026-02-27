@@ -11,14 +11,16 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { IconAlertCircle, IconSparkles } from "@tabler/icons-react";
 import confetti from "canvas-confetti";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function CelebrityMatch({ webcamRef }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [matchResult, setMatchResult] = useState(null);
   const [userImage, setUserImage] = useState(null);
-
+  const [celebImageUrl, setCelebImageUrl] = useState(null);
+  const [isFetchingImage, setIsFetchingImage] = useState(false);
   const formatName = (name) =>
     name
       ?.replace(/_/g, " ")
@@ -47,7 +49,41 @@ export default function CelebrityMatch({ webcamRef }) {
     setMatchResult(null);
 
     try {
-      const blob = await (await fetch(imageSrc)).blob();
+      // 1. Detect the face on the current video frame
+      const detection = await faceapi.detectSingleFace(
+        video,
+        new faceapi.TinyFaceDetectorOptions(),
+      );
+
+      if (!detection) {
+        setMatchResult({
+          error: "No face detected! Please look at the camera.",
+        });
+        setIsAnalyzing(false);
+        return;
+      }
+
+      // 2. Calculate crop area with some padding so we don't cut off hair/chin
+      const padding = 50;
+      const { x, y, width, height } = detection.box;
+      const sx = Math.max(0, x - padding);
+      const sy = Math.max(0, y - padding);
+      const sWidth = Math.min(video.videoWidth - sx, width + padding * 2);
+      const sHeight = Math.min(video.videoHeight - sy, height + padding * 2);
+
+      // 3. Draw cropped face to an off-screen canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = sWidth;
+      canvas.height = sHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, sWidth, sHeight);
+
+      // 4. Get the cropped image data
+      const croppedImageSrc = canvas.toDataURL("image/jpeg", 0.9);
+      setUserImage(croppedImageSrc);
+
+      // 5. Send to Gradio
+      const blob = await (await fetch(croppedImageSrc)).blob();
       const app = await Client.connect("DannyWits/prism-celeb-vision");
       const result = await app.predict("/predict", [blob]);
 
@@ -66,7 +102,37 @@ export default function CelebrityMatch({ webcamRef }) {
       setIsAnalyzing(false);
     }
   };
+  useEffect(() => {
+    const fetchWikiImage = async () => {
+      if (!matchResult || matchResult.error) return;
 
+      setIsFetchingImage(true);
+      try {
+        // We use your formatName function to ensure the string is clean for Wikipedia Search
+        const cleanName = formatName(matchResult.label);
+        const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(cleanName)}&prop=pageimages&format=json&pithumbsize=500&origin=*`;
+
+        const response = await fetch(url);
+        const data = await response.json();
+        const pages = data.query.pages;
+        const pageId = Object.keys(pages)[0];
+
+        if (pageId !== "-1" && pages[pageId].thumbnail) {
+          setCelebImageUrl(pages[pageId].thumbnail.source);
+        } else {
+          // Fallback to local image if Wikipedia fails or has no image
+          setCelebImageUrl(`celeb/${matchResult.label}.jpg`);
+        }
+      } catch (err) {
+        console.error("Failed to fetch from Wikipedia", err);
+        setCelebImageUrl(`celeb/${matchResult.label}.jpg`); // Fallback
+      } finally {
+        setIsFetchingImage(false);
+      }
+    };
+
+    fetchWikiImage();
+  }, [matchResult]);
   return (
     <Paper
       p="xl"
@@ -81,7 +147,7 @@ export default function CelebrityMatch({ webcamRef }) {
             Who is your Celebrity Twin?
           </Title>
           <Text size="sm" c="dimmed">
-            Take a snap to find your Hollywood lookalike
+            Take a snap to find your BollyWood lookalike
           </Text>
         </Stack>
 
@@ -89,10 +155,11 @@ export default function CelebrityMatch({ webcamRef }) {
           size="md"
           radius="xl"
           variant="gradient"
-          gradient={{ from: "red ", to: "grape", deg: 90 }}
+          gradient={{ from: "red", to: "grape", deg: 90 }}
           onClick={handleSnapshot}
           disabled={isAnalyzing}
           style={{ transition: "transform 0.2s" }}
+          rightSection={!isAnalyzing && <IconSparkles size={18} />}
         >
           {isAnalyzing ? (
             <Group gap="sm">
@@ -102,12 +169,17 @@ export default function CelebrityMatch({ webcamRef }) {
               </Text>
             </Group>
           ) : (
-            "Find My Match ✨"
+            "Find My Match"
           )}
         </Button>
 
         {matchResult?.error && (
-          <Alert color="red" radius="md" title="Oops!">
+          <Alert
+            color="red"
+            radius="md"
+            title="Oops!"
+            icon={<IconAlertCircle size={16} />}
+          >
             {matchResult.error}
           </Alert>
         )}
@@ -135,11 +207,17 @@ export default function CelebrityMatch({ webcamRef }) {
                   {formatName(matchResult.label)}
                 </Text>
                 <div style={imageContainerStyle}>
-                  <img
-                    src={`celeb/${matchResult.label}.jpg`}
-                    alt="Celebrity Match"
-                    style={imageStyle}
-                  />
+                  {isFetchingImage ? (
+                    <Center h="100%">
+                      <Loader color="grape" type="dots" />
+                    </Center>
+                  ) : (
+                    <img
+                      src={celebImageUrl || `celeb/${matchResult.label}.jpg`}
+                      alt="Celebrity Match"
+                      style={imageStyle}
+                    />
+                  )}
                 </div>
               </Stack>
             </Group>
